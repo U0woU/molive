@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>カオスLive</title>
+<title>molive</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <style>
 :root {
   --bg: #0d0d10; --panel: #18181d; --border: #2a2a33;
@@ -28,16 +29,14 @@ header .tip { font-size: 11px; color: var(--muted); }
   display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
   gap: 6px; padding: 6px; min-height: 0;
 }
-
 .cell {
   position: relative; background: var(--panel); border: 1px solid var(--border);
-  border-radius: 10px; overflow: hidden; cursor: pointer;
-  transition: border-color .15s;
+  border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color .15s;
 }
 .cell:hover { border-color: var(--accent); }
 .cell.filled { cursor: default; border-color: transparent; }
 .cell.filled:hover { border-color: transparent; }
-.cell iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.cell iframe, .cell video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
 
 .placeholder {
   position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -50,7 +49,6 @@ header .tip { font-size: 11px; color: var(--muted); }
   justify-content: center; font-size: 24px; color: var(--text);
 }
 .placeholder .label { font-size: 12px; }
-.placeholder .plat { font-size: 10px; opacity: .55; }
 
 .clear-btn {
   position: absolute; top: 8px; right: 8px; width: 28px; height: 28px;
@@ -60,18 +58,25 @@ header .tip { font-size: 11px; color: var(--muted); }
   padding: 0; line-height: 1;
 }
 .cell.filled:hover .clear-btn { display: flex; }
-@media (hover: none) {
-  .cell.filled .clear-btn { display: flex; opacity: .55; }
+@media (hover: none) { .cell.filled .clear-btn { display: flex; opacity: .55; } }
+
+.notice {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; padding: 16px;
+  text-align: center; color: var(--muted); font-size: 12px;
+}
+.notice a {
+  color: var(--accent); text-decoration: none; border: 1px solid var(--accent);
+  padding: 6px 14px; border-radius: 8px; font-size: 12px;
 }
 
 .overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.7);
   backdrop-filter: blur(3px); display: flex; align-items: center;
-  justify-content: center; z-index: 100; opacity: 0;
-  pointer-events: none; transition: opacity .2s;
+  justify-content: center; z-index: 100; opacity: 0; pointer-events: none;
+  transition: opacity .2s;
 }
 .overlay.open { opacity: 1; pointer-events: auto; }
-
 .modal {
   width: min(460px, calc(100% - 24px)); background: var(--panel);
   border: 1px solid var(--border); border-radius: 14px; padding: 20px;
@@ -80,12 +85,13 @@ header .tip { font-size: 11px; color: var(--muted); }
 }
 .overlay.open .modal { transform: none; }
 .modal h2 { margin: 0 0 14px; font-size: 15px; }
-.modal input {
+.modal input, .modal textarea {
   width: 100%; padding: 11px 13px; font-size: 14px; border-radius: 9px;
   border: 1px solid var(--border); background: #0f0f13; color: var(--text);
   outline: none; font-family: inherit;
 }
-.modal input:focus { border-color: var(--accent); }
+.modal textarea { margin-top: 8px; font-size: 12px; font-family: monospace; resize: vertical; }
+.modal input:focus, .modal textarea:focus { border-color: var(--accent); }
 .hint { font-size: 12px; min-height: 18px; margin: 8px 2px 4px; color: var(--muted); }
 .hint.ok { color: #4ade80; }
 .hint.err { color: #ff5577; }
@@ -95,10 +101,7 @@ button {
   border-radius: 8px; cursor: pointer; border: 1px solid var(--border);
   background: #22222a; color: var(--text);
 }
-button.primary {
-  background: var(--accent); border-color: var(--accent);
-  color: #fff; font-weight: 600;
-}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 button:disabled { opacity: .4; cursor: not-allowed; }
 button.primary:not(:disabled):hover { filter: brightness(1.1); }
 
@@ -107,13 +110,12 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
   header .tip { display: none; }
 }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest></script>
 </head>
 <body>
 
 <header>
-  <h1>カオス<span>Live</span></h1>
-  <div class="tip">セルをタップで挿入 / 右上の × で解除</div>
+  <h1>mo<span>live</span></h1>
+  <div class="tip">セルをタップで挿入 / × で解除</div>
 </header>
 
 <main class="grid">
@@ -127,8 +129,10 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
   <div class="modal">
     <h2>動画を挿入</h2>
     <input type="text" id="urlInput"
-      placeholder="YouTube / Twitch / ニコニコのURLを貼り付け"
+      placeholder="YouTube / Twitch / ニコニコのURL"
       autocomplete="off" spellcheck="false">
+    <textarea id="embedInput" rows="3"
+      placeholder="ニコニコの埋め込みタグ（&lt;iframe ...&gt;）を貼り付け"></textarea>
     <div class="hint" id="hint"></div>
     <div class="actions">
       <button id="cancelBtn">キャンセル</button>
@@ -141,21 +145,22 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
 (function () {
   "use strict";
 
-  const cells    = Array.from(document.querySelectorAll(".cell"));
-  const overlay  = document.getElementById("overlay");
-  const urlInput = document.getElementById("urlInput");
-  const hint     = document.getElementById("hint");
-  const okBtn    = document.getElementById("okBtn");
-  const cancelBtn= document.getElementById("cancelBtn");
+  const cells     = Array.from(document.querySelectorAll(".cell"));
+  const overlay   = document.getElementById("overlay");
+  const urlInput  = document.getElementById("urlInput");
+  const embedInput= document.getElementById("embedInput");
+  const hint      = document.getElementById("hint");
+  const okBtn     = document.getElementById("okBtn");
+  const cancelBtn = document.getElementById("cancelBtn");
 
-  const STORAGE_KEY = "chaos-live-v1";
+  const STORAGE_KEY = "molive-v1";
   const parentHost  = location.hostname || "localhost";
 
-  let activeIndex  = null;
-  let pendingEmbed = null;
-  let state        = [null, null, null, null];
+  let activeIndex = null;
+  let pending     = null;
+  let state       = [null, null, null, null];
 
-  // ---------- 永続化 ----------
+  // ---------- 保存・復元 ----------
   function persist() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
@@ -166,67 +171,7 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
     } catch (e) {}
   }
 
-  // ---------- 描画 ----------
-  function renderEmpty(cell, i) {
-    cell.classList.remove("filled");
-    cell.innerHTML =
-      '<div class="placeholder">' +
-        '<div class="plus">+</div>' +
-        '<div class="label">タップで挿入</div>' +
-      '</div>';
-    cell.onclick = () => openModal(i);
-  }
-
-  function renderFilled(cell, i) {
-    const data = state[i];
-    cell.classList.add("filled");
-
-    if (data.platform && data.platform.startsWith("YouTube")) {
-    // YouTubeは HLS + <video> で再生
-    const channelId = data.channelId; // stateに保存しておく
-    cell.innerHTML =
-      '<video class="yt-video" controls autoplay muted playsinline></video>' +
-      '<button class="clear-btn" title="解除">×</button>';
-
-    const video = cell.querySelector(".yt-video");
-    const hlsUrl = `https://ythls.kekikakademi.org/youtube/channel/${channelId}.m3u8`;
-
-    if (window.Hls && Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(hlsUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-      hls.on(Hls.Events.ERROR, (e, d) => {
-        if (d.fatal) {
-          // 配信していない等
-          cell.innerHTML =
-            '<div class="placeholder"><div class="label">現在配信していません</div></div>' +
-            '<button class="clear-btn">×</button>';
-          cell.querySelector(".clear-btn").onclick = (ev) => {
-            ev.stopPropagation();
-            state[i] = null; persist(); renderEmpty(cell, i);
-          };
-        }
-      });
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = hlsUrl;
-      video.addEventListener("loadedmetadata", () => video.play().catch(() => {}));
-    }
-  } else {
-    // Twitch・ニコニコは従来通りiframe
-    cell.innerHTML =
-      '<iframe src="' + data.embed + '" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>' +
-      '<button class="clear-btn" title="解除">×</button>';
-  }
-
-  cell.onclick = null;
-  const btn = cell.querySelector(".clear-btn");
-  if (btn) btn.onclick = (e) => {
-    e.stopPropagation();
-    state[i] = null; persist(); renderEmpty(cell, i);
-  };
-}
-  // ---------- URL 判定 ----------
+  // ---------- URL解析 ----------
   function parse(raw) {
     const s = (raw || "").trim();
     if (!s) return { error: "" };
@@ -243,28 +188,30 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
     const path = url.pathname;
 
     // ---- YouTube ----
-   // YouTube判定部分を以下に置き換え
-if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
-  // チャンネルURL（/channel/UC... または /@name/live）の場合
-  const chMatch = path.match(/^\/channel\/(UC[\w-]+)/);
-  if (chMatch) {
-    return {
-      platform: "YouTube",
-      channelId: chMatch[1],
-      embed: null // iframeは使わない
-    };
-  }
-  // 動画URLの場合は従来通り（iframeでもHLSでもなく、videoIdからはHLS URLを作れないのでiframeにフォールバック）
-  let id = null;
-  if (host === "youtu.be") id = path.split("/").filter(Boolean)[0];
-  else if (path === "/watch") id = url.searchParams.get("v");
-  else if (/^\/(live|embed|shorts)\//.test(path)) id = path.split("/").filter(Boolean)[1];
-  if (!id) return { error: "YouTube: チャンネルURL（/channel/UC...）か動画URLを貼ってください" };
-  return {
-    platform: "YouTube (動画)",
-    embed: "https://www.youtube.com/embed/" + id + "?autoplay=1&mute=1&playsinline=1"
-  };
-}
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
+      // チャンネル固定URL（HLS再生用）: /channel/UC...
+      const ch = path.match(/^\/channel\/(UC[\w-]+)/);
+      if (ch) {
+        return { platform: "YouTube (チャンネル)", channelId: ch[1], embed: null };
+      }
+      // 動画URL
+      let id = null;
+      if (host === "youtu.be") {
+        id = path.split("/").filter(Boolean)[0];
+      } else if (path === "/watch") {
+        id = url.searchParams.get("v");
+      } else if (/^\/(live|embed|shorts)\//.test(path)) {
+        id = path.split("/").filter(Boolean)[1];
+      }
+      if (!id) {
+        return { error: "YouTube: 動画IDを特定できません（チャンネルは /channel/UC... 形式で貼ってください）" };
+      }
+      return {
+        platform: "YouTube (動画)",
+        embed: "https://www.youtube.com/embed/" + id + "?autoplay=1&mute=1&playsinline=1"
+      };
+    }
+
     // ---- Twitch ----
     if (host === "twitch.tv" || host === "m.twitch.tv" || host === "player.twitch.tv") {
       const seg = path.split("/").filter(Boolean);
@@ -275,7 +222,7 @@ if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
                  "&parent=" + parentHost + "&autoplay=true&muted=true"
         };
       }
-      if (seg.length >= 1) {
+      if (seg[0]) {
         return {
           platform: "Twitch",
           embed: "https://player.twitch.tv/?channel=" + seg[0] +
@@ -289,16 +236,13 @@ if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
     if (host === "nicovideo.jp" || host === "live.nicovideo.jp" || host === "sp.nicovideo.jp") {
       const seg = path.split("/").filter(Boolean);
       if (seg[0] === "watch" && seg[1]) {
-        return { platform: "ニコニコ動画",
-                 embed: "https://embed.nicovideo.jp/watch/" + seg[1] + "?autoplay=1" };
+        return { platform: "ニコニコ動画", embed: "https://embed.nicovideo.jp/watch/" + seg[1] + "?autoplay=1" };
       }
       if (seg[0] === "live" && seg[1]) {
-        return { platform: "ニコニコ生放送",
-                 embed: "https://live.nicovideo.jp/embed/" + seg[1] };
+        return { platform: "ニコニコ生放送", nicoLiveId: seg[1], embed: null };
       }
       if (seg.length === 1 && /^lv\d+$/.test(seg[0])) {
-        return { platform: "ニコニコ生放送",
-                 embed: "https://live.nicovideo.jp/embed/" + seg[0] };
+        return { platform: "ニコニコ生放送", nicoLiveId: seg[0], embed: null };
       }
       return { error: "ニコニコ: 動画ID/放送IDを特定できません" };
     }
@@ -306,11 +250,116 @@ if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
     return { error: "対応URLではありません（YouTube / Twitch / ニコニコ）" };
   }
 
+  // ---------- 描画 ----------
+  function renderEmpty(cell, i) {
+    cell.classList.remove("filled");
+    cell.innerHTML =
+      '<div class="placeholder">' +
+        '<div class="plus">+</div>' +
+        '<div class="label">タップで挿入</div>' +
+      '</div>';
+    cell.onclick = () => openModal(i);
+  }
+
+  function bindClear(cell, i) {
+    const btn = cell.querySelector(".clear-btn");
+    if (btn) btn.onclick = (e) => {
+      e.stopPropagation();
+      state[i] = null;
+      persist();
+      renderEmpty(cell, i);
+    };
+  }
+
+  function renderFilled(cell, i) {
+    const data = state[i];
+    cell.classList.add("filled");
+    cell.onclick = null;
+
+    // カスタム埋め込みタグ（ニコニコの共有タグなど）
+    if (data.rawEmbed) {
+      cell.innerHTML = data.rawEmbed + '<button class="clear-btn" title="解除">×</button>';
+      bindClear(cell, i);
+      return;
+    }
+
+    // YouTube チャンネル固定（HLS）
+    if (data.platform === "YouTube (チャンネル)" && data.channelId) {
+      cell.innerHTML =
+        '<video class="yt-video" controls autoplay muted playsinline></video>' +
+        '<button class="clear-btn" title="解除">×</button>';
+      const video = cell.querySelector(".yt-video");
+      const hlsUrl = "https://ythls.kekikakademi.org/youtube/channel/" + data.channelId + ".m3u8";
+
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+        hls.on(Hls.Events.ERROR, (e, d) => {
+          if (d.fatal) {
+            cell.innerHTML =
+              '<div class="notice"><div>現在配信していません</div></div>' +
+              '<button class="clear-btn" title="解除">×</button>';
+            bindClear(cell, i);
+          }
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = hlsUrl;
+        video.addEventListener("loadedmetadata", () => video.play().catch(() => {}));
+      } else {
+        cell.innerHTML =
+          '<div class="notice"><div>このブラウザはHLS再生に対応していません</div></div>' +
+          '<button class="clear-btn" title="解除">×</button>';
+      }
+      bindClear(cell, i);
+      return;
+    }
+
+    // ニコニコ生放送（埋め込み未許可）
+    if (data.platform === "ニコニコ生放送") {
+      const liveId = data.nicoLiveId;
+      cell.innerHTML =
+        '<div class="notice">' +
+          '<div>この放送は埋め込みタグが必要です</div>' +
+          '<div>放送ページの「共有」→埋め込みタグを上の欄に貼ってください</div>' +
+          '<a href="https://live.nicovideo.jp/watch/' + liveId + '" target="_blank" rel="noopener">ニコニコで開く</a>' +
+        '</div>' +
+        '<button class="clear-btn" title="解除">×</button>';
+      bindClear(cell, i);
+      return;
+    }
+
+    // 通常のiframe（YouTube動画・Twitch・ニコニコ動画）
+    if (data.embed) {
+      cell.innerHTML =
+        '<iframe src="' + data.embed + '" ' +
+          'allow="autoplay; fullscreen; picture-in-picture; encrypted-media" ' +
+          'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>' +
+        '<button class="clear-btn" title="解除">×</button>';
+      bindClear(cell, i);
+      return;
+    }
+
+    renderEmpty(cell, i);
+  }
+
+  function paint(i) {
+    if (state[i]) renderFilled(cells[i], i);
+    else          renderEmpty(cells[i], i);
+  }
+
   // ---------- モーダル ----------
+  function setHint(text, cls) {
+    hint.textContent = text;
+    hint.className = "hint" + (cls ? " " + cls : "");
+  }
+
   function openModal(i) {
     activeIndex = i;
-    pendingEmbed = null;
+    pending = null;
     urlInput.value = "";
+    embedInput.value = "";
     okBtn.disabled = true;
     setHint("", "");
     overlay.classList.add("open");
@@ -319,54 +368,58 @@ if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
   function closeModal() {
     overlay.classList.remove("open");
     activeIndex = null;
-    pendingEmbed = null;
-  }
-  function setHint(text, cls) {
-    hint.textContent = text;
-    hint.className = "hint" + (cls ? " " + cls : "");
+    pending = null;
   }
 
   urlInput.addEventListener("input", () => {
+    embedInput.value = "";
     const r = parse(urlInput.value);
     if (r.error) {
-      pendingEmbed = null;
+      pending = null;
       okBtn.disabled = true;
       setHint(urlInput.value.trim() ? r.error : "", urlInput.value.trim() ? "err" : "");
-    } else if (r.embed) {
-      pendingEmbed = r;
+    } else if (r.embed || r.channelId || r.nicoLiveId) {
+      pending = r;
       okBtn.disabled = false;
-      setHint("✓ " + r.platform + " を埋め込みます", "ok");
+      setHint("✓ " + r.platform + " を挿入します", "ok");
     } else {
-      pendingEmbed = null;
+      pending = null;
       okBtn.disabled = true;
       setHint("", "");
     }
   });
 
-  urlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && pendingEmbed) commitInsert();
-    if (e.key === "Escape") closeModal();
+  embedInput.addEventListener("input", () => {
+    const v = embedInput.value.trim();
+    if (v) {
+      urlInput.value = "";
+      pending = { platform: "カスタム埋め込み", rawEmbed: v };
+      okBtn.disabled = false;
+      setHint("✓ 埋め込みタグを挿入します", "ok");
+    } else {
+      pending = null;
+      okBtn.disabled = true;
+      setHint("", "");
+    }
   });
 
-  function commitInsert() {
-    if (activeIndex === null || !pendingEmbed) return;
-    state[activeIndex] = pendingEmbed;
+  function commit() {
+    if (activeIndex === null || !pending) return;
+    state[activeIndex] = pending;
     persist();
     paint(activeIndex);
     closeModal();
   }
 
-  okBtn.addEventListener("click", commitInsert);
+  okBtn.addEventListener("click", commit);
   cancelBtn.addEventListener("click", closeModal);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
+  urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && pending) commit(); });
+  embedInput.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
   // ---------- 起動 ----------
   restore();
   for (let i = 0; i < 4; i++) paint(i);
-
-  if (!location.hostname) {
-    console.warn("Twitch埋め込みは https 上でのみ動きます。GitHub Pagesで公開してください。");
-  }
 })();
 </script>
 </body>
