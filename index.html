@@ -107,6 +107,7 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
   header .tip { display: none; }
 }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest></script>
 </head>
 <body>
 
@@ -179,26 +180,52 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
   function renderFilled(cell, i) {
     const data = state[i];
     cell.classList.add("filled");
+
+    if (data.platform && data.platform.startsWith("YouTube")) {
+    // YouTubeは HLS + <video> で再生
+    const channelId = data.channelId; // stateに保存しておく
     cell.innerHTML =
-      '<iframe src="' + data.embed + '" ' +
-        'allow="autoplay; fullscreen; picture-in-picture; encrypted-media" ' +
-        'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>' +
+      '<video class="yt-video" controls autoplay muted playsinline></video>' +
       '<button class="clear-btn" title="解除">×</button>';
-    cell.onclick = null;
-    cell.querySelector(".clear-btn").onclick = (e) => {
-      e.stopPropagation();
-      state[i] = null;
-      persist();
-      renderEmpty(cell, i);
-    };
+
+    const video = cell.querySelector(".yt-video");
+    const hlsUrl = `https://ythls.kekikakademi.org/youtube/channel/${channelId}.m3u8`;
+
+    if (window.Hls && Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+      hls.on(Hls.Events.ERROR, (e, d) => {
+        if (d.fatal) {
+          // 配信していない等
+          cell.innerHTML =
+            '<div class="placeholder"><div class="label">現在配信していません</div></div>' +
+            '<button class="clear-btn">×</button>';
+          cell.querySelector(".clear-btn").onclick = (ev) => {
+            ev.stopPropagation();
+            state[i] = null; persist(); renderEmpty(cell, i);
+          };
+        }
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = hlsUrl;
+      video.addEventListener("loadedmetadata", () => video.play().catch(() => {}));
+    }
+  } else {
+    // Twitch・ニコニコは従来通りiframe
+    cell.innerHTML =
+      '<iframe src="' + data.embed + '" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>' +
+      '<button class="clear-btn" title="解除">×</button>';
   }
 
-  function paint(i) {
-    const cell = cells[i];
-    if (state[i]) renderFilled(cell, i);
-    else          renderEmpty(cell, i);
-  }
-
+  cell.onclick = null;
+  const btn = cell.querySelector(".clear-btn");
+  if (btn) btn.onclick = (e) => {
+    e.stopPropagation();
+    state[i] = null; persist(); renderEmpty(cell, i);
+  };
+}
   // ---------- URL 判定 ----------
   function parse(raw) {
     const s = (raw || "").trim();
@@ -216,24 +243,28 @@ button.primary:not(:disabled):hover { filter: brightness(1.1); }
     const path = url.pathname;
 
     // ---- YouTube ----
-    if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
-      let id = null;
-      if (host === "youtu.be") {
-        id = path.split("/").filter(Boolean)[0];
-      } else if (path === "/watch") {
-        id = url.searchParams.get("v");
-      } else if (/^\/(live|embed|shorts)\//.test(path)) {
-        id = path.split("/").filter(Boolean)[1];
-      }
-      if (!id) {
-        return { error: "YouTube: 動画IDを特定できません（配信は /live/ID 形式を貼ってください）" };
-      }
-      return {
-        platform: "YouTube",
-        embed: "https://www.youtube.com/embed/" + id + "?autoplay=1&mute=1&playsinline=1"
-      };
-    }
-
+   // YouTube判定部分を以下に置き換え
+if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
+  // チャンネルURL（/channel/UC... または /@name/live）の場合
+  const chMatch = path.match(/^\/channel\/(UC[\w-]+)/);
+  if (chMatch) {
+    return {
+      platform: "YouTube",
+      channelId: chMatch[1],
+      embed: null // iframeは使わない
+    };
+  }
+  // 動画URLの場合は従来通り（iframeでもHLSでもなく、videoIdからはHLS URLを作れないのでiframeにフォールバック）
+  let id = null;
+  if (host === "youtu.be") id = path.split("/").filter(Boolean)[0];
+  else if (path === "/watch") id = url.searchParams.get("v");
+  else if (/^\/(live|embed|shorts)\//.test(path)) id = path.split("/").filter(Boolean)[1];
+  if (!id) return { error: "YouTube: チャンネルURL（/channel/UC...）か動画URLを貼ってください" };
+  return {
+    platform: "YouTube (動画)",
+    embed: "https://www.youtube.com/embed/" + id + "?autoplay=1&mute=1&playsinline=1"
+  };
+}
     // ---- Twitch ----
     if (host === "twitch.tv" || host === "m.twitch.tv" || host === "player.twitch.tv") {
       const seg = path.split("/").filter(Boolean);
