@@ -2,6 +2,6 @@
   {
     "liveId": "ch2646436",
     "title": "NHK総合",
-    "embed": "<iframe src=\"<iframe width="237" height="262" src="https://live.nicovideo.jp/embed/lv351685017" scrolling="no" frameborder="0" loading="lazy"></iframe>" allowfullscreen></iframe>"
+    "embed": "<iframe width=\"237\" height=\"262\" src=\"https://live.nicovideo.jp/embed/lv351685017\" scrolling=\"no\" frameborder=\"0\" loading=\"lazy\" allowfullscreen></iframe>"
   }
 ]
