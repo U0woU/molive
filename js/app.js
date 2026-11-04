@@ -1,6 +1,20 @@
 (function () {
   "use strict";
 
+  // グローバルエラーを画面に表示（デバッグ用）
+  window.addEventListener("error", (e) => {
+    if (document.getElementById("global-error")) return;
+    const div = document.createElement("div");
+    div.id = "global-error";
+    div.style.cssText =
+      "position:fixed;left:10px;right:10px;bottom:10px;z-index:9999;" +
+      "background:#c01838;color:#fff;padding:10px 14px;border-radius:8px;" +
+      "font:12px/1.5 monospace;white-space:pre-wrap;";
+    div.textContent = "ERROR: " + (e.message || e.error) +
+      "\n" + (e.filename || "") + ":" + (e.lineno || "");
+    document.body.appendChild(div);
+  });
+
   const cells     = Array.from(document.querySelectorAll(".cell"));
   const overlay   = document.getElementById("overlay");
   const urlInput  = document.getElementById("urlInput");
@@ -15,7 +29,6 @@
   let pending     = null;
   let state       = [null, null, null, null];
 
-  // ---------- 保存・復元 ----------
   function persist() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
@@ -52,60 +65,46 @@
     cell.classList.add("filled");
     cell.onclick = null;
 
-    // カスタム埋め込みタグ（ニコニコ共有タグなど）
+    // 1) カスタム埋め込みタグ（ニコニコ共有タグなど）
     if (data.rawEmbed) {
-      cell.innerHTML = data.rawEmbed + '<button class="clear-btn" title="解除">×</button>';
-      bindClear(cell, i);
-      return;
-    }
-
-    // YouTube チャンネル固定（HLS）
-    if (data.platform === "YouTube (チャンネル)" && data.channelId) {
-      cell.innerHTML =
-        '<video class="yt-video" controls autoplay muted playsinline></video>' +
+      cell.innerHTML = data.rawEmbed +
         '<button class="clear-btn" title="解除">×</button>';
-      const video = cell.querySelector(".yt-video");
-      const hlsUrl = "https://ythls.kekikakademi.org/youtube/channel/" + data.channelId + ".m3u8";
-
-      if (window.Hls && Hls.isSupported()) {
-        const hls = new Hls();
-        hls.loadSource(hlsUrl);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-        hls.on(Hls.Events.ERROR, (e, d) => {
-          if (d.fatal) {
-            cell.innerHTML =
-              '<div class="notice"><div>現在配信していません</div></div>' +
-              '<button class="clear-btn" title="解除">×</button>';
-            bindClear(cell, i);
-          }
-        });
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = hlsUrl;
-        video.addEventListener("loadedmetadata", () => video.play().catch(() => {}));
-      } else {
-        cell.innerHTML =
-          '<div class="notice"><div>このブラウザはHLS再生に対応していません</div></div>' +
-          '<button class="clear-btn" title="解除">×</button>';
-      }
       bindClear(cell, i);
       return;
     }
 
-    // ニコニコ生放送（許可リスト or フォールバック）
+    // 2) YouTube チャンネル固定（HLS）→ youtube.js に委譲
+    if (data.platform === "YouTube (チャンネル)" && data.channelId) {
+      if (!window.Youtube) {
+        cell.innerHTML =
+          '<div class="notice"><div>js/youtube.js が読み込まれていません</div></div>' +
+          '<button class="clear-btn" title="解除">×</button>';
+        bindClear(cell, i);
+        return;
+      }
+      window.Youtube.renderChannel(cell, data.channelId, () => {
+        state[i] = null; persist(); renderEmpty(cell, i);
+      });
+      return;
+    }
+
+    // 3) ニコニコ生放送
     if (data.platform === "ニコニコ生放送") {
-      if (window.Nico.isAllowed(data.nicoLiveId)) {
+      if (window.Nico && window.Nico.isAllowed(data.nicoLiveId)) {
         cell.innerHTML = window.Nico.getEmbed(data.nicoLiveId) +
           '<button class="clear-btn" title="解除">×</button>';
       } else {
-        cell.innerHTML = window.Nico.buildFallback(data.nicoLiveId) +
+        const fallback = window.Nico
+          ? window.Nico.buildFallback(data.nicoLiveId)
+          : '<div class="notice"><div>ニコニコモジュール未読込</div></div>';
+        cell.innerHTML = fallback +
           '<button class="clear-btn" title="解除">×</button>';
       }
       bindClear(cell, i);
       return;
     }
 
-    // 通常のiframe（YouTube動画・Twitch・ニコニコ動画）
+    // 4) 通常のiframe（YouTube動画・Twitch・ニコニコ動画）
     if (data.embed) {
       cell.innerHTML =
         '<iframe src="' + data.embed + '" ' +
@@ -148,6 +147,11 @@
 
   urlInput.addEventListener("input", () => {
     embedInput.value = "";
+    if (!window.Platforms) {
+      setHint("js/platforms.js が読み込まれていません", "err");
+      okBtn.disabled = true;
+      return;
+    }
     const r = window.Platforms.parse(urlInput.value);
     if (r.error) {
       pending = null;
@@ -191,10 +195,20 @@
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
   urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && pending) commit(); });
 
-  // ---------- 起動 ----------
-  window.Layout.init();
-  window.Nico.load().then(() => {
-    restore();
-    for (let i = 0; i < 4; i++) paint(i);
-  });
+  // ---------- 起動：まず即描画、Nico読込は後追い ----------
+  if (window.Layout) window.Layout.init();
+  restore();
+  for (let i = 0; i < 4; i++) paint(i);
+
+  // ニコニコの許可リストは後から読み込む（失敗してもサイトは動く）
+  if (window.Nico) {
+    window.Nico.load().then(() => {
+      // ニコ生セルがあれば再描画
+      for (let i = 0; i < 4; i++) {
+        if (state[i] && state[i].platform === "ニコニコ生放送") paint(i);
+      }
+    }).catch((err) => {
+      console.warn("Nico load failed:", err);
+    });
+  }
 })();
