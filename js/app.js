@@ -67,12 +67,15 @@
 
     // 1) カスタム埋め込みタグ（ニコニコ共有タグなど）
     if (data.rawEmbed) {
-      cell.innerHTML = data.rawEmbed +
-        '<button class="clear-btn" title="解除">×</button>';
-      bindClear(cell, i);
-      return;
-    }
-
+  // 閉じタグがなければ補完する
+  let embedHtml = data.rawEmbed.trim();
+  if (embedHtml.startsWith("<iframe") && !embedHtml.endsWith("</iframe>")) {
+    embedHtml += "</iframe>";
+  }
+  cell.innerHTML = embedHtml + '<button class="clear-btn" title="解除">×</button>';
+  bindClear(cell, i);
+  return;
+}
     // 2) YouTube チャンネル固定（HLS）→ youtube.js に委譲
     if (data.platform === "YouTube (チャンネル)" && data.channelId) {
       if (!window.Youtube) {
